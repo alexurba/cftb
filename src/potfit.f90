@@ -33,6 +33,7 @@ program potfit
   ! --nodepos         Spline fit only: how to distribute nodes         !
   !                   'uniform'  distribute nodes equally over range   !
   !                   'opt'      optimize node positions               !
+  !                   'auto'     automatically place nodes             !
   !--------------------------------------------------------------------!
   ! 2011-02-18 Alexander Urban (AU)                                    !
   !--------------------------------------------------------------------!
