@@ -2,6 +2,37 @@ program potfit
 
   !--------------------------------------------------------------------!
   ! Fit a pairpotential to reproduce cohesive energies.                !
+  !                                                                    !
+  ! Options:                                                           !
+  !                                                                    !
+  ! --in -i           Input file name (default: INP)                   !
+  ! --out -o          Output file name (default: potfit.out)           !
+  ! --niter           Number of iterations (default: 10,000)           !
+  ! --tol             Optimization threshold (default: 1.0d-6)         !
+  ! --funct           Function type used for the fit                   !
+  !                   'polyexp'    polynomial x exponential (default)  !
+  !                   'sumexp'     sum of exponential functions        !
+  !                   'gsp'        GSP function                        !
+  !                   'csplines'   cubic splines                       !
+  ! --plot            File name for plot data (default: potfit.dat)    !
+  ! --restart         Name of the restart file (in output format)      !
+  ! --bond            Bond definition of two atomic species 'A-B'      !
+  ! --range <m> <M>   Range for the fit will be [<m>:<M>]              !
+  ! --train           List of data files for fitting                   !
+  ! --test            List of data files for testing                   !
+  !                                                                    !
+  ! --opttarget       Optimization target:                             !
+  !                   'rel'    relative difference (default)           !
+  !                   'abs'    absolute difference & derivatives       !
+  !                   'diff'   fit only derivatives                    !
+  !                                                                    !
+  !---------------------------- spline fit ----------------------------!
+  ! --nnodes          number of nodes/abscissas (default: 5)           !
+  ! --optderiv        if .true., the the derivative at the first node  !
+  !                   will be optimized (0 else)                       !
+  ! --nodepos         Spline fit only: how to distribute nodes         !
+  !                   'uniform'  distribute nodes equally over range   !
+  !                   'opt'      optimize node positions               !
   !--------------------------------------------------------------------!
   ! 2011-02-18 Alexander Urban (AU)                                    !
   !--------------------------------------------------------------------!
@@ -85,18 +116,22 @@ program potfit
   !                                                                    !
   ! (2) polyexp functions:                                             !
   ! ----------------------                                             !
-  ! np           : number of parameters                              !
-  ! nfixed        : number of fixed parameters; nfix < n              !
-  ! pini(i)    : i-th parameter                                    !
-  ! fixed(i)      " .true., if the i-th parameter is fixed            !
+  ! np           : number of parameters                                !
+  ! nfixed        : number of fixed parameters; nfix < n               !
+  ! pini(i)    : i-th parameter                                        !
+  ! fixed(i)      " .true., if the i-th parameter is fixed             !
   !                                                                    !
   !------------------------------- fit --------------------------------!
+  ! nrep           : times to repeat the SIMPLEX optimization          !
   ! E_target(i)    : target energy for the pair potential for file i   !
+  !                  = E_cohes(i) - E_tb(i)                            !
   ! E_now(i)       : during fit: energy calculated with current guess  !
   ! E_tb(i)        : TB-Band cohesive energy (without pot.) for file i !
   ! E_cohes(i)     : DFT cohesive energy for file i                    !
   ! rmsd_E         : rmsd(energy)                                      !
   ! rmsd_dE        : rmsd(d energy / d structure)                      !
+  !                  --> dE is just the relative energy difference of  !
+  !                      reference structures                          !
   ! dmean_E        : mean deviation from the target energies           !
   ! dmax_E         : max. deviation from the target energy             !
   ! rmsd_err       : rmsd(mean deviation)                              !
@@ -175,7 +210,7 @@ program potfit
   call parse_command_arguments()
 
 
-  !-------------------------- initialization --------------------------!  
+  !-------------------------- initialization --------------------------!
 
   nrep = 5
   y1_n = 0.0d0
@@ -256,10 +291,10 @@ program potfit
         select case(opt_target)
         case('absolute','abs')
            rmsd1 = rmsd_E + rmsd_dE
-        case('relative','rel')  
+        case('relative','rel')
            rmsd1 = rmsd_err + rmsd_dE
            bias  = dmean_E
-        case('differences','diff')  
+        case('differences','diff')
            rmsd1 = rmsd_dE
            bias  = dmean_E
         end select
@@ -340,7 +375,7 @@ program potfit
 
   ! energy correction shift:
   select case (opt_target)
-  case ('relative','rel') 
+  case ('relative','rel')
      bias  = dmean_E
   case('differences','diff')
      bias  = dmean_E
@@ -413,7 +448,7 @@ contains !=============================================================!
   subroutine finalize()
 
     implicit none
-    
+
     if (allocated(ndist)) then
        deallocate(ndist, E_target, E_now, E_tb, E_cohes)
     end if
@@ -429,7 +464,7 @@ contains !=============================================================!
     else
        deallocate(t2_dist, t2_count)
     end if
-    
+
   end subroutine finalize
 
   !--------------------------------------------------------------------!
@@ -446,7 +481,7 @@ contains !=============================================================!
          args=(/ 'in     ', 'out    ', 'niter  ', 'tol    ', 'files  ', &
                  'funct  ', 'plot   ', 'nnodes ', 'restart'/),          &
          extra='--bond:--range:--nodepos:--test:--opttarget:--optderiv')
-  
+
     call tbio_args('in',      infile)
     call tbio_args('restart', restfile)
     call tbio_args('out',     outfile,  default='potfit.out')
@@ -455,7 +490,7 @@ contains !=============================================================!
     call tbio_args('tol',     tol,      default=1.0d-10)
     call tbio_args('nnodes',  nnodes)
     call tbio_args('funct',   ftype,    default='csplines')
-  
+
     ! potential range / interval:
     call args_switch('--range', pos=ipos)
     if (ipos /= 0) then
@@ -476,7 +511,7 @@ contains !=============================================================!
        read(*,*) rmax
        write(*,*)
     end if
-  
+
     ! atom types / bond:
     call args_switch('--bond', pos=ipos)
     if (ipos /= 0) then
@@ -495,7 +530,7 @@ contains !=============================================================!
        read(*,*) type2
        write(*,*)
     end if
-  
+
     ! training set:
     call args_switch('--train', pos=itrain)
     if (itrain == 0) then
@@ -510,7 +545,7 @@ contains !=============================================================!
        if (str(1:1) == '-') exit
        ntrain = ntrain + 1
     end do
-  
+
     ! testing set:
     call args_switch('--test', pos=itest)
     ntest = 0
@@ -521,7 +556,7 @@ contains !=============================================================!
           ntest = ntest + 1
        end do
     end if
-  
+
     nfiles = ntrain + ntest
     allocate(files(nfiles))
     write(*,*) io_trim('Number of data files', wdescr), ' : ', &
@@ -544,15 +579,15 @@ contains !=============================================================!
           write(*,*) trim(files(ntrain+i))
        end do
     end if
-  
+
     !--------------------------------------------!
     ! additional (for now undocumented) switches !
     !--------------------------------------------!
-   
+
     call args_switch('--nodepos',   value=nodepos,    default='uniform')
     call args_switch('--opttarget', value=opt_target, default='relative')
     call args_switch('--optderiv',  value=optderiv)
-  
+
     call tbio_final()
 
   end subroutine parse_command_arguments
@@ -562,7 +597,7 @@ contains !=============================================================!
   !--------------------------------------------------------------------!
 
   subroutine print_results()
-    
+
     implicit none
 
     if (conv) then
@@ -570,10 +605,10 @@ contains !=============================================================!
     else
        write(*,*) 'NOT Converged after ', trim(io_adjustl(iter)), ' iterations.'
     end if
-  
-    write(*,*) 
+
+    write(*,*)
     write(*,*) 'Fitting results:'
-    write(*,*) 
+    write(*,*)
     write(*,'(1x,"target function      : ",A15)') opt_target
     write(*,'(1x,"fitting function     : ",A15)') ftype
     write(*,*)
@@ -584,7 +619,7 @@ contains !=============================================================!
     write(*,'(1x,"rmsd(mean error)     : ",ES15.8)') rmsd_err
     write(*,'(1x,"(bias                : ",ES15.8,")")') bias
     write(*,*)
-  
+
     select case(ftype)
     case('csplines')
        call print_results_csplines()
@@ -667,7 +702,7 @@ contains !=============================================================!
           ! Angstroem to Bohr:
           avec(:,:) = avec(:,:)*Ang2Bohr
 
-          ! rearrange coordinates in memory; keep only atoms 
+          ! rearrange coordinates in memory; keep only atoms
           ! of required types:
           nallatoms = natoms(itype1)
           if (itype1 /= itype2) then
@@ -718,7 +753,7 @@ contains !=============================================================!
                 end do
                 if (newdist) then
                    if (ndist(nE) >= ndist_max) call more_memory()
-                   ndist(nE) = ndist(nE) + 1 
+                   ndist(nE) = ndist(nE) + 1
                    p_dist(ndist(nE), nE)  =  r
                    p_count(ndist(nE), nE) =  1
                end if
@@ -806,7 +841,7 @@ contains !=============================================================!
   subroutine analyze_distances(nE, nd, ndist, dist, count, r0, r1, nr, p)
 
     implicit none
-    
+
     integer,                             intent(in)  :: nE, nd
     integer,          dimension(nE),     intent(in)  :: ndist
     double precision, dimension(nd, nE), intent(in)  :: dist
@@ -814,7 +849,7 @@ contains !=============================================================!
     double precision,                    intent(in)  :: r0, r1
     integer,                             intent(in)  :: nr
     double precision, dimension(nr),     intent(out) :: p
-    
+
     integer, parameter :: u_hist = 50
 
     double precision :: r, dr
@@ -864,7 +899,7 @@ contains !=============================================================!
   !--------------------------------------------------------------------!
 
   subroutine init_csplines_fit()
-    
+
     implicit none
 
     ! restarting previous fit?
@@ -959,7 +994,7 @@ contains !=============================================================!
     double precision, dimension(n), intent(out) :: y
 
     double precision, dimension(:), allocatable :: x_tmp, y_tmp, y2_tmp
-    
+
     integer, parameter :: u_in = 20
 
     character(len=256) :: line
@@ -1002,7 +1037,7 @@ contains !=============================================================!
        ival = ival + 1
        read(line, *) x_tmp(ival), y_tmp(ival)
     end do process
-    
+
     close(u_in)
 
     !---------------- get values at desired abscissas -----------------!
@@ -1111,7 +1146,7 @@ contains !=============================================================!
   !--------------------------------------------------------------------!
 
   subroutine print_plot_csplines()
-    
+
     implicit none
 
     double precision :: x0, dx, y0, y0_1, y0_2
@@ -1136,7 +1171,7 @@ contains !=============================================================!
   !--------------------------------------------------------------------!
   !                          print final fit                           !
   !--------------------------------------------------------------------!
-  
+
   subroutine print_results_csplines()
 
     implicit none
@@ -1244,9 +1279,29 @@ contains !=============================================================!
 
   subroutine eval_RMSD(n, pnow, nE, ndist_max, ndist, dist,    &
        dcount, E_tb, E_cohes, E_target, E_now, rmsd_E, rmsd_dE,        &
-       dmax_E, dmean_E, rmsd_err) 
+       dmax_E, dmean_E, rmsd_err)
 
     implicit none
+
+    !----------------------------- input ------------------------------!
+    ! n                  number of optimization parameters             !
+    ! pnow(i)            current value of i-th optimization parameter  !
+    ! nE                 number of structures                          !
+    ! ndist_max          largest number of atomic distances per struc. !
+    ! ndist(i)           number of atomic distances of i-th structure  !
+    ! dist(i,j)          i-th distance in j-th structure               !
+    ! dcount(i,j)        multiplicity of i-th distance in j-th struc.  !
+    ! E_tb(i)            TB band energy of i-th structure              !
+    ! E_cohes(i)         cohesive energy of i-th structure             !
+    ! E_target(i)        target energy of i-th structure               !
+    !----------------------------- output -----------------------------!
+    ! E_now(i)           current pair pot. energy of i-th structure    !
+    ! rmsd_E             current energy RMSD                           !
+    ! rmsd_dE            current RMSD in energy differences            !
+    ! dmax_E             maximum absolute error in energy              !
+    ! dmean_E            mean error in energies                        !
+    ! rmsd_err           RMSD if mean error is subtracted              !
+    !------------------------------------------------------------------!
 
     integer,                                       intent(in)  :: n
     double precision, dimension(n),                intent(in)  :: pnow
@@ -1265,7 +1320,7 @@ contains !=============================================================!
     double precision,                              intent(out) :: dmean_E
     double precision,                              intent(out) :: rmsd_err
 
-    double precision, parameter       :: dE_max = 0.05d0
+    double precision, parameter       :: dE_max = 0.05d0 ! Ha
 
     double precision, dimension(np) :: param
     integer                           :: ip, i
@@ -1292,7 +1347,7 @@ contains !=============================================================!
 
        E_now(iE) = 0.0d0
        do idist = 1, ndist(iE)
-    
+
           call eval_fitfunct(dist(idist,iE), ftype, np, param, E, &
                              dEdr, d2Edr2, d3Edr3)
 
@@ -1305,9 +1360,12 @@ contains !=============================================================!
              dE2 = (E_now(iE)+E_tb(iE)) - (E_now(iE-1)+E_tb(iE-1))
              E = dE1 - dE2
 
-             if (sign(1.0d0,dE1) /= sign(1.0d0,dE2)) then
-                E = exp(E*E)
-             end if
+!!$ check this: exponential punishment when sign of energy difference
+!!$             is wrong
+!!$
+!!$             if (sign(1.0d0,dE1) /= sign(1.0d0,dE2)) then
+!!$                E = exp(E*E)
+!!$             end if
 
              rmsd_dE = rmsd_dE + E*E
           end if
@@ -1338,7 +1396,7 @@ contains !=============================================================!
   !--------------------------------------------------------------------!
 
   subroutine print_plot(n, pnow)
-    
+
     implicit none
 
     integer,                        intent(in) :: n
@@ -1375,13 +1433,13 @@ contains !=============================================================!
        x0 = x0 + dx
     end do
     close(u_plt)
-    
+
    end subroutine print_plot
 
   !--------------------------------------------------------------------!
   !                          print final fit                           !
   !--------------------------------------------------------------------!
-  
+
   subroutine print_final_parameters(n, pnow, conv, iter)
 
     implicit none
@@ -1456,7 +1514,7 @@ contains !=============================================================!
 
 
   subroutine eval_fitfunct(x, ftype, np, param, y, dy, d2y, d3y)
-    
+
     implicit none
 
     double precision,                intent(in)  :: x
@@ -1464,7 +1522,7 @@ contains !=============================================================!
     integer,                         intent(in)  :: np
     double precision, dimension(np), intent(in)  :: param
     double precision,                intent(out) :: y, dy, d2y, d3y
-    
+
     select case(ftype)
     case('gsp')
        call eval_GSP(x, np, param, y, dy, d2y, d3y)
@@ -1483,7 +1541,7 @@ contains !=============================================================!
   !--------------------------------------------------------------------!
 
   subroutine eval_polyexp(x, np, param, y, dy, d2y, d3y)
-    
+
     implicit none
 
     double precision,                intent(in)  :: x
@@ -1496,7 +1554,7 @@ contains !=============================================================!
     double precision                :: fx, dfx, d2fx, d3fx
     double precision                :: tx, dtx, d2tx, d3tx
     double precision                :: fc, dfc, d2fc, d3fc
-   
+
     rcut = param(2)
 
     if (x >= rcut) then
@@ -1521,7 +1579,7 @@ contains !=============================================================!
        d3y = d3fx - d3tx
 
     end if
-    
+
   end subroutine eval_polyexp
 
   !--------------------------------------------------------------------!
@@ -1580,7 +1638,7 @@ contains !=============================================================!
        end if
 
     end if
-    
+
   end subroutine eval_sumexp
 
   !--------------------------------------------------------------------!
@@ -1646,7 +1704,7 @@ contains !=============================================================!
           d2y = d2t
           d3y = d3t
        end if
-       
+
     end if
 
   end subroutine eval_GSP
